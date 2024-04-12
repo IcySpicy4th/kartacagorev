@@ -1,0 +1,113 @@
+# kartaca-wordpress Salt State Dosyası
+
+# Kullanıcı ve Grup 
+create_user_and_group:
+  user.present:
+    - name: kartaca
+    - uid: 2024
+    - gid: 2024
+    - home: /home/krt
+    - shell: /bin/bash
+    - password: {{ salt['pillar.get']('user_password:kartaca') }}
+
+# Sudo Yetkisi
+grant_sudo:
+  file.append:
+    - name: /etc/sudoers
+    - text: "kartaca ALL=(ALL) NOPASSWD: ALL"
+
+# Zaman Dilimi Ayarlama
+set_timezone:
+  timezone.system:
+    - name: Europe/Istanbul
+
+# IP Forwardingi Kalıcı Olarak Etkinleştirme
+enable_ip_forwarding:
+  sysctl.present:
+    - name: net.ipv4.ip_forward
+    - value: 1
+    - config: /etc/sysctl.conf
+
+# Gerekli Paketlerin Kurulumu
+install_required_packages:
+  pkg.installed:
+    - names:
+      - htop
+      - tcptraceroute
+      - iputils
+      - bind-utils
+      - sysstat
+      - mtr
+
+# /etc/hosts Host Kaydı Ekleme
+add_hosts_entries:
+  file.append:
+    - name: /etc/hosts
+    - text: |
+        {% for i in range(1, 17) %}
+        192.168.168.{{ 127 + i }}    kartaca{{ i }}.local
+        {% endfor %}
+
+# MySQL Server Kurulumu
+install_mysql_server:
+  pkg.installed:
+    - name: mysql-server
+
+# MySQL Servisinin Otomatik Başlatılma
+enable_mysql_autostart:
+  service.running:
+    - name: mysql
+    - enable: True
+
+# WordPress için MySQL Veritabanı ve Kullanıcı Oluşturma
+create_mysql_db_and_user:
+  mysql_database.present:
+    - name: {{ salt['pillar.get']('mysql:database') }}
+    - charset: utf8
+    - collate: utf8_general_ci
+  mysql_user.present:
+    - name: {{ salt['pillar.get']('mysql:username') }}
+    - password: {{ salt['pillar.get']('mysql:password') }}
+    - host: localhost
+    - priv: '{{ salt['pillar.get']('mysql:database') }}.*:ALL'
+
+# WordPress Arşivinin İndirilmesi
+download_wordpress:
+  cmd.run:
+    - name: wget -P /tmp https://wordpress.org/latest.tar.gz
+
+# WordPress Arşivinin Açılması
+extract_wordpress:
+  cmd.run:
+    - name: tar -xvzf /tmp/latest.tar.gz -C /var/www/
+
+# Nginx Kurulumu
+install_nginx:
+  pkg.installed:
+    - name: nginx
+
+# Nginx Servisinin Otomatik Başlatılması
+enable_nginx_autostart:
+  service.running:
+    - name: nginx
+    - enable: True
+
+# Nginx Yapılandırma Dosyasının Güncellenmesi
+update_nginx_config:
+  file.managed:
+    - name: /etc/nginx/nginx.conf
+    - source: salt://files/nginx.conf
+    - user: root
+    - group: root
+    - mode: 644
+
+# WordPress Config Dosyasının Güncellenmesi
+update_wp_config:
+  cmd.run:
+    - name: sed -i "s/database_name_here/{{ salt['pillar.get']('mysql:database') }}/g; s/username_here/{{ salt['pillar.get']('mysql:username') }}/g; s/password_here/{{ salt['pillar.get']('mysql:password') }}/g" /var/www/wordpress/wp-config.php
+
+# WordPress İçin Secret ve Keylerin Çekilmesi
+get_wordpress_keys:
+  cmd.run:
+    - name: curl -s https://api.wordpress.org/secret-key/1.1/salt/
+    - shell: /bin/bash

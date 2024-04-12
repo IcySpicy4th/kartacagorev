@@ -1,0 +1,9 @@
+# kartaca-wordpress Pillar Dosyası
+
+mysql:
+  database: wordpress_db
+  username: wordpress_user
+  password: wordpress_password
+
+user_password:
+  kartaca: kartaca2024
